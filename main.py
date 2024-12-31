@@ -18,23 +18,24 @@ def compress_image(image_data, max_size=(1600, 1600), quality=100):
         img_bytes.seek(0)
         return img_bytes.read()
 
-@app.post("/extract-weight")
-async def extract_weight(file: UploadFile = File(...)):
+@app.post("/extract-number")
+async def extract_number(file: UploadFile = File(...)):
     try:
         # Read the file into memory
         image_data = await file.read()
 
-        # Compress the image
-        compressed_bytes = compress_image(image_data)
+        # Compress the image (uncomment if you wish to actually compress)
+        # compressed_bytes = compress_image(image_data)
+        compressed_bytes = image_data
 
-        # Optionally, if you have a service account JSON file, do:
+        # If you have a service account JSON file, set it here:
         # os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = '/app/service_account_key.json'
-        # Otherwise, if you’re using Cloud Run with Workload Identity, you can skip that.
+        # Otherwise, using Cloud Run with Workload Identity, no need for the above.
 
         # Initialize the GenAI client
         client = genai.Client(
             vertexai=True,
-            project="my-fastapi-weight-extraction",  # Replace with your project
+            project="my-fastapi-weight-extraction",
             location="us-central1"
         )
 
@@ -50,7 +51,7 @@ async def extract_weight(file: UploadFile = File(...)):
                 role="user",
                 parts=[
                     image_part,
-                    types.Part.from_text("Extract my weight from this image.")
+                    types.Part.from_text("Extract a number from this image.")
                 ]
             )
         ]
@@ -70,22 +71,24 @@ async def extract_weight(file: UploadFile = File(...)):
             response_mime_type="application/json",
         )
 
-        weight_found = None
+        number_found = None
+        # Stream the generation
         for chunk in client.models.generate_content_stream(
             model="gemini-2.0-flash-exp",
             contents=contents,
             config=generate_config
         ):
             raw_content = str(chunk)
-            match = re.search(r'"weight":\s*"([\d.]+)"', raw_content)
+            # Look for something like: "number": "123.45"
+            match = re.search(r'"number":\s*"([\d.]+)"', raw_content)
             if match:
-                weight_found = match.group(1)
+                number_found = match.group(1)
                 break
 
-        if weight_found:
-            return JSONResponse({"weight": weight_found})
+        if number_found:
+            return JSONResponse({"number": number_found})
         else:
-            return JSONResponse({"message": "Weight not found."})
+            return JSONResponse({"message": "No number found."})
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
